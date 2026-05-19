@@ -49,6 +49,7 @@ export default {
     <Stack
         size="narrow"
         open
+        inset
         :title="title"
         @update:open="$emit('closed')"
     >

@@ -12,6 +12,7 @@ const emit = defineEmits(['closed', 'picked']);
     <Stack
         size="narrow"
         open
+        inset
         :title="__('Add Widget')"
         @update:open="emit('closed')"
     >
