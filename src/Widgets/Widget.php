@@ -45,7 +45,7 @@ abstract class Widget
 
     public static function icon(): string
     {
-        return 'generic-widget';
+        return 'code-block';
     }
 
     public function blueprint(): \Statamic\Fields\Blueprint
