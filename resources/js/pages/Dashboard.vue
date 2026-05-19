@@ -29,7 +29,6 @@ const editing = ref(false);
 const draftItems = ref([]);
 const availableWidgets = ref(null);
 const loadingMeta = ref(false);
-const picking = ref(false);
 const configuringIndex = ref(null);
 const saving = ref(false);
 
@@ -97,15 +96,9 @@ function cancelEditing() {
     draftItems.value = [];
 }
 
-function openPicker() {
-    ensureMetaLoaded();
-    picking.value = true;
-}
-
 function widgetPicked(widget) {
     const newConfig = { type: widget.handle, ...(widget.defaults || {}) };
     draftItems.value.push({ config: newConfig, display: null });
-    picking.value = false;
     configuringIndex.value = draftItems.value.length - 1;
 }
 
@@ -157,7 +150,7 @@ function save() {
     <template v-if="editing || widgets.length">
         <ui-header :title="__('Dashboard')" icon="dashboard">
             <template v-if="editing">
-                <Button :text="__('Add Widget')" icon="plus" @click="openPicker" />
+                <WidgetPicker :widgets="availableWidgets || []" @picked="widgetPicked" />
                 <Button :text="__('Cancel')" @click="cancelEditing" />
                 <Button :text="__('Save')" variant="primary" :disabled="saving" @click="save" />
             </template>
@@ -203,13 +196,6 @@ function save() {
                 </div>
             </div>
         </SortableList>
-
-        <WidgetPicker
-            v-if="picking"
-            :widgets="availableWidgets || []"
-            @closed="picking = false"
-            @picked="widgetPicked"
-        />
 
         <WidgetConfigStack
             v-if="configuringWidget"
