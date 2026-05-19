@@ -7,8 +7,20 @@ use Facades\Statamic\Updater\UpdatesOverview;
 use Statamic\Facades\Addon;
 use Statamic\Facades\User;
 
+use function Statamic\trans as __;
+
 class Updater extends Widget
 {
+    public static function description(): ?string
+    {
+        return __('statamic::messages.widget_updater_description');
+    }
+
+    public static function icon(): string
+    {
+        return 'updates';
+    }
+
     public function component()
     {
         if (! User::current()->can('view updates')) {

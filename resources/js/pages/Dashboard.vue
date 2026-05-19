@@ -1,52 +1,216 @@
-<script setup>
+<script>
 import Head from '@/pages/layout/Head.vue';
 import DynamicHtmlRenderer from '@/components/DynamicHtmlRenderer.vue';
-import { Icon, EmptyStateMenu, EmptyStateItem, DocsCallout } from '@ui';
+import { Icon, Button, EmptyStateMenu, EmptyStateItem, DocsCallout } from '@ui';
+import { SortableList } from '@/components/sortable/Sortable.js';
+import WidgetTile from '@/components/dashboard/WidgetTile.vue';
+import WidgetPicker from '@/components/dashboard/WidgetPicker.vue';
+import WidgetConfigStack from '@/components/dashboard/WidgetConfigStack.vue';
 import useArchitecturalBackground from '@/pages/layout/architectural-background.js';
+import { router } from '@inertiajs/vue3';
+import { clone } from '@/bootstrap/globals.js';
 
-const props = defineProps({
-    widgets: Array,
-    pro: Boolean,
-    blueprintsUrl: String,
-    collectionsCreateUrl: String,
-    navigationCreateUrl: String,
-});
+export default {
+    components: {
+        Head,
+        DynamicHtmlRenderer,
+        Icon,
+        Button,
+        EmptyStateMenu,
+        EmptyStateItem,
+        DocsCallout,
+        SortableList,
+        WidgetTile,
+        WidgetPicker,
+        WidgetConfigStack,
+    },
 
-if (props.widgets.length === 0) useArchitecturalBackground();
+    props: {
+        widgets: Array,
+        widgetConfigs: { type: Array, default: () => [] },
+        canEditWidgets: { type: Boolean, default: false },
+        widgetMetaUrl: String,
+        widgetUpdateUrl: String,
+        pro: Boolean,
+        blueprintsUrl: String,
+        collectionsCreateUrl: String,
+        navigationCreateUrl: String,
+    },
 
-function classes(widget) {
-    return `${widget.classes} ${tailwindWidthClass(widget.width)}`;
-}
+    data() {
+        return {
+            editing: false,
+            draftWidgets: [],
+            availableWidgets: null,
+            loadingMeta: false,
+            picking: false,
+            configuringIndex: null,
+            saving: false,
+        };
+    },
 
-function tailwindWidthClass(width) {
-    const sizes = {
-        sm: 'w-full @2xl:w-1/2 @4xl:w-1/3 @7xl:w-1/4',
-        md: 'w-full @2xl:w-1/2 @4xl:w-1/2 @7xl:w-1/3',
-        lg: 'w-full @2xl:w-full @4xl:w-2/3 @7xl:w-3/4',
-        full: 'w-full',
-    };
+    computed: {
+        widgetsMetaByHandle() {
+            if (! this.availableWidgets) return {};
+            return Object.fromEntries(this.availableWidgets.map((w) => [w.handle, w]));
+        },
 
-    // For backward compatibility, map old numeric widths to new sizes
-    const legacyMap = {
-        25: 'sm',
-        33: 'sm',
-        50: 'md',
-        66: 'md',
-        75: 'lg',
-        100: 'full'
-    };
+        configuringWidget() {
+            if (this.configuringIndex === null) return null;
+            return this.draftWidgets[this.configuringIndex] || null;
+        },
 
-    const size = typeof width === 'number' ? (legacyMap[width] ?? 'full') : width;
+        configuringMeta() {
+            return this.configuringWidget ? this.widgetsMetaByHandle[this.configuringWidget.type] : null;
+        },
+    },
 
-    return sizes[size] ?? sizes.md;
-}
+    created() {
+        if (!this.widgets.length && !this.editing) useArchitecturalBackground();
+    },
+
+    methods: {
+        classes(widget) {
+            return `${widget.classes ?? ''} ${this.tailwindWidthClass(widget.width)}`;
+        },
+
+        tailwindWidthClass(width) {
+            const sizes = {
+                sm: 'w-full @2xl:w-1/2 @4xl:w-1/3 @7xl:w-1/4',
+                md: 'w-full @2xl:w-1/2 @4xl:w-1/2 @7xl:w-1/3',
+                lg: 'w-full @2xl:w-full @4xl:w-2/3 @7xl:w-3/4',
+                full: 'w-full',
+            };
+
+            const legacyMap = { 25: 'sm', 33: 'sm', 50: 'md', 66: 'md', 75: 'lg', 100: 'full' };
+            const size = typeof width === 'number' ? (legacyMap[width] ?? 'full') : width;
+            return sizes[size] ?? sizes.md;
+        },
+
+        startEditing() {
+            this.draftWidgets = clone(this.widgetConfigs);
+            this.editing = true;
+            this.ensureMetaLoaded();
+        },
+
+        cancelEditing() {
+            this.editing = false;
+            this.draftWidgets = [];
+        },
+
+        ensureMetaLoaded() {
+            if (this.availableWidgets || this.loadingMeta) return;
+            this.loadingMeta = true;
+            this.$axios.get(this.widgetMetaUrl)
+                .then((response) => { this.availableWidgets = response.data; })
+                .catch(() => this.$toast.error(__('Could not load widgets.')))
+                .finally(() => { this.loadingMeta = false; });
+        },
+
+        openPicker() {
+            this.ensureMetaLoaded();
+            this.picking = true;
+        },
+
+        widgetPicked(widget) {
+            const newConfig = { type: widget.handle, ...(widget.defaults || {}) };
+            this.draftWidgets.push(newConfig);
+            this.picking = false;
+            this.configuringIndex = this.draftWidgets.length - 1;
+        },
+
+        configureWidget(index) {
+            this.configuringIndex = index;
+        },
+
+        widgetConfigSaved(updated) {
+            if (this.configuringIndex === null) return;
+            this.draftWidgets.splice(this.configuringIndex, 1, updated);
+            this.configuringIndex = null;
+        },
+
+        removeWidget(index) {
+            this.draftWidgets.splice(index, 1);
+        },
+
+        updateWidth(index, width) {
+            this.draftWidgets[index] = { ...this.draftWidgets[index], width };
+        },
+
+        save() {
+            this.saving = true;
+            this.$axios.patch(this.widgetUpdateUrl, { widgets: this.draftWidgets })
+                .then(() => {
+                    this.editing = false;
+                    router.reload();
+                })
+                .catch(() => this.$toast.error(__('Something went wrong')))
+                .finally(() => { this.saving = false; });
+        },
+
+    },
+};
 </script>
 
 <template>
     <Head :title="__('Dashboard')" />
 
-    <template v-if="widgets.length">
-        <ui-header :title="__('Dashboard')" icon="dashboard" />
+    <template v-if="editing">
+        <ui-header :title="__('Dashboard')" icon="dashboard">
+            <Button :text="__('Add Widget')" icon="plus" @click="openPicker" />
+            <Button :text="__('Cancel')" @click="cancelEditing" />
+            <Button :text="__('Save')" variant="primary" :disabled="saving" @click="save" />
+        </ui-header>
+
+        <SortableList
+            v-model="draftWidgets"
+            item-class="dashboard-widget-sortable"
+            handle-class="dashboard-widget-handle"
+            :vertical="true"
+            :mirror="false"
+            :distance="5"
+        >
+            <div class="flex flex-col gap-3">
+                <div
+                    v-for="(config, index) in draftWidgets"
+                    :key="`${config.type}-${index}`"
+                    class="dashboard-widget-sortable"
+                >
+                    <WidgetTile
+                        :config="config"
+                        :meta="widgetsMetaByHandle[config.type]"
+                        @configure="configureWidget(index)"
+                        @remove="removeWidget(index)"
+                        @update:width="updateWidth(index, $event)"
+                    />
+                </div>
+                <div v-if="!draftWidgets.length" class="text-center text-gray-500 py-12 border border-dashed rounded-lg dark:border-gray-700">
+                    {{ __('No widgets yet. Click "Add Widget" to get started.') }}
+                </div>
+            </div>
+        </SortableList>
+
+        <WidgetPicker
+            v-if="picking"
+            :widgets="availableWidgets || []"
+            @closed="picking = false"
+            @picked="widgetPicked"
+        />
+
+        <WidgetConfigStack
+            v-if="configuringWidget"
+            :config="configuringWidget"
+            :meta="configuringMeta"
+            @closed="configuringIndex = null"
+            @saved="widgetConfigSaved"
+        />
+
+    </template>
+
+    <template v-else-if="widgets.length">
+        <ui-header :title="__('Dashboard')" icon="dashboard">
+            <Button v-if="canEditWidgets" :text="__('Edit')" icon="edit" @click="startEditing" />
+        </ui-header>
 
         <div class="widgets @container/widgets flex flex-wrap gap-y-6 -mx-2 sm:-mx-3">
             <div
@@ -66,6 +230,9 @@ function tailwindWidthClass(width) {
                 <Icon name="dashboard" class="size-5 text-gray-500" />
                 {{ __('Dashboard') }}
             </h1>
+            <div v-if="canEditWidgets" class="mt-4">
+                <Button :text="__('Edit Dashboard')" icon="edit" @click="startEditing" />
+            </div>
         </header>
 
         <EmptyStateMenu
