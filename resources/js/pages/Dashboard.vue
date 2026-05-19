@@ -193,7 +193,8 @@ export default {
             item-class="dashboard-widget-sortable"
             handle-class="dashboard-widget-handle"
             :disabled="!editing"
-            :mirror="false"
+            :animate="false"
+            :constrain-dimensions="true"
             :distance="5"
             @update:model-value="onSort"
         >

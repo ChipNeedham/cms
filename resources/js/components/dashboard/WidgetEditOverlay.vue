@@ -21,7 +21,7 @@ function onWidthUpdate(value) {
 </script>
 
 <template>
-    <div class="absolute inset-0 z-10 rounded-lg ring-2 ring-inset ring-blue-500/40">
+    <div class="absolute inset-0 z-[2] rounded-lg ring-2 ring-inset ring-blue-500/40">
         <div class="absolute inset-x-0 top-0 flex items-center gap-1 px-2 py-2 rounded-t-lg bg-gray-900/80 backdrop-blur-sm">
             <Icon name="handles" class="dashboard-widget-handle cursor-grab text-white size-4 shrink-0 drop-shadow-sm" />
             <Icon :name="meta?.icon ?? 'code-block'" class="size-4 text-white/70 shrink-0" />
