@@ -1,5 +1,6 @@
 <script setup>
 import { Icon } from '@/components/ui';
+import WidthSelector from '@/components/fields/WidthSelector.vue';
 import { computed } from 'vue';
 
 const props = defineProps({
@@ -9,8 +10,14 @@ const props = defineProps({
 
 const emit = defineEmits(['configure', 'remove', 'update:width']);
 
-const widthOptions = ['sm', 'md', 'lg', 'full'];
-const currentWidth = computed(() => props.config.width ?? 'md');
+const widthToPercent = { sm: 25, md: 50, lg: 75, full: 100 };
+const percentToWidth = { 25: 'sm', 50: 'md', 75: 'lg', 100: 'full' };
+
+const currentWidth = computed(() => widthToPercent[props.config.width ?? 'md']);
+
+function onWidthUpdate(value) {
+    emit('update:width', percentToWidth[value]);
+}
 </script>
 
 <template>
@@ -22,16 +29,11 @@ const currentWidth = computed(() => props.config.width ?? 'md');
 
             <div class="flex-1 min-w-2" />
 
-            <div class="flex items-center text-xs font-medium rounded overflow-hidden border border-white/20">
-                <button
-                    v-for="opt in widthOptions"
-                    :key="opt"
-                    type="button"
-                    class="px-2 py-1 text-white/70 hover:text-white hover:bg-white/10 transition-colors"
-                    :class="{ 'bg-white/25 !text-white': currentWidth === opt }"
-                    @click="emit('update:width', opt)"
-                >{{ opt.charAt(0).toUpperCase() + opt.slice(1) }}</button>
-            </div>
+            <WidthSelector
+                :model-value="currentWidth"
+                :initial-widths="[25, 50, 75, 100]"
+                @update:model-value="onWidthUpdate"
+            />
 
             <button
                 type="button"
