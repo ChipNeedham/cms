@@ -4,7 +4,7 @@ import Head from '@/pages/layout/Head.vue';
 import DynamicHtmlRenderer from '@/components/DynamicHtmlRenderer.vue';
 import { Icon, Button, EmptyStateMenu, EmptyStateItem, DocsCallout } from '@ui';
 import { SortableList } from '@/components/sortable/Sortable.js';
-import WidgetEditOverlay from '@/components/dashboard/WidgetEditOverlay.vue';
+import WidgetEditChrome from '@/components/dashboard/WidgetEditChrome.vue';
 import WidgetPicker from '@/components/dashboard/WidgetPicker.vue';
 import WidgetConfigStack from '@/components/dashboard/WidgetConfigStack.vue';
 import useArchitecturalBackground from '@/pages/layout/architectural-background.js';
@@ -31,6 +31,23 @@ const availableWidgets = ref(null);
 const loadingMeta = ref(false);
 const configuringIndex = ref(null);
 const saving = ref(false);
+const isDragging = ref(false);
+
+const sortableOptions = {
+    classes: {
+        mirror: 'dashboard-widget-mirror',
+    },
+    swapAnimation: {
+        duration: 220,
+        easingFunction: 'cubic-bezier(0.22, 1, 0.36, 1)',
+        horizontal: true,
+        vertical: true,
+    },
+    mirror: {
+        constrainDimensions: true,
+        appendTo: 'body',
+    },
+};
 
 const widgetsMetaByHandle = computed(() => {
     if (!availableWidgets.value) return {};
@@ -48,9 +65,9 @@ const configuringMeta = computed(() => {
 
 const unifiedWidgets = computed(() => {
     if (editing.value) {
-        return draftItems.value.map((item) => ({ config: item.config, display: item.display }));
+        return draftItems.value.map((item) => ({ id: item.id, config: item.config, display: item.display }));
     }
-    return props.widgets.map((widget) => ({ config: null, display: widget }));
+    return props.widgets.map((widget, i) => ({ id: `widget-${i}`, config: null, display: widget }));
 });
 
 onMounted(() => {
@@ -84,6 +101,7 @@ function ensureMetaLoaded() {
 
 function startEditing() {
     draftItems.value = props.widgetConfigs.map((config, i) => ({
+        id: `widget-${i}`,
         config: clone(config),
         display: props.widgets[i] || null,
     }));
@@ -98,7 +116,11 @@ function cancelEditing() {
 
 function widgetPicked(widget) {
     const newConfig = { type: widget.handle, ...(widget.defaults || {}) };
-    draftItems.value.push({ config: newConfig, display: null });
+    draftItems.value.push({
+        id: `${widget.handle}-${Date.now()}`,
+        config: newConfig,
+        display: null,
+    });
     configuringIndex.value = draftItems.value.length - 1;
 }
 
@@ -119,6 +141,7 @@ function removeWidget(index) {
     } else if (configuringIndex.value !== null && configuringIndex.value > index) {
         configuringIndex.value--;
     }
+
     draftItems.value.splice(index, 1);
 }
 
@@ -129,7 +152,12 @@ function updateWidth(index, width) {
 
 function onSort(sortedItems) {
     if (!editing.value) return;
-    draftItems.value = sortedItems.map((item) => ({ config: item.config, display: item.display }));
+
+    draftItems.value = sortedItems.map((item) => ({
+        id: item.id ?? `${item.config?.type}-${Date.now()}`,
+        config: item.config,
+        display: item.display,
+    }));
 }
 
 function save() {
@@ -154,7 +182,7 @@ function save() {
                 <Button :text="__('Cancel')" @click="cancelEditing" />
                 <Button :text="__('Save')" variant="primary" :disabled="saving" @click="save" />
             </template>
-            <Button v-else-if="canEditWidgets" :text="__('Edit')" icon="edit" @click="startEditing" />
+            <Button v-else-if="canEditWidgets" :text="__('Configure')" icon="edit" @click="startEditing" />
         </ui-header>
 
         <SortableList
@@ -162,20 +190,26 @@ function save() {
             item-class="dashboard-widget-sortable"
             handle-class="dashboard-widget-handle"
             :disabled="!editing"
-            :animate="false"
+            :animate="true"
             :constrain-dimensions="true"
-            :distance="5"
+            :distance="8"
+            :options="sortableOptions"
+            @dragstart="isDragging = true"
+            @dragend="isDragging = false"
             @update:model-value="onSort"
         >
-            <div class="widgets @container/widgets flex flex-wrap gap-y-6 -mx-2 sm:-mx-3">
+            <div
+                class="widgets @container/widgets flex flex-wrap gap-y-6 -mx-2 sm:-mx-3"
+                :class="{ 'dashboard-editing': editing, 'dashboard-is-dragging': isDragging }"
+            >
                 <div
                     v-for="(item, index) in unifiedWidgets"
-                    :key="index"
+                    :key="item.id"
                     class="dashboard-widget-sortable px-3"
-                    :class="[classes(item.config ?? item.display), { 'starting-style-transition': !editing }]"
+                    :class="[classes(item.config ?? item.display), { 'starting-style-transition': !editing && !isDragging }]"
                 >
-                    <div class="relative">
-                        <WidgetEditOverlay
+                    <div class="dashboard-widget-inner">
+                        <WidgetEditChrome
                             v-if="editing && item.config"
                             :config="item.config"
                             :meta="widgetsMetaByHandle[item.config.type]"
@@ -185,14 +219,24 @@ function save() {
                         />
                         <component v-if="item.display?.component" :is="item.display.component.name" v-bind="item.display.component.props" />
                         <DynamicHtmlRenderer v-else-if="item.display?.html" :html="item.display.html" />
-                        <div v-else-if="editing" class="rounded-lg border-2 border-dashed border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-800/50 p-8 flex flex-col items-center justify-center gap-2 text-gray-500 dark:text-gray-400 min-h-32">
-                            <Icon :name="widgetsMetaByHandle[item.config?.type]?.icon ?? 'code-block'" class="size-8 opacity-50" />
-                            <span class="text-sm">{{ widgetsMetaByHandle[item.config?.type]?.title ?? item.config?.type }}</span>
+                        <div v-else-if="editing" class="dashboard-widget-placeholder">
+                            <Icon :name="widgetsMetaByHandle[item.config?.type]?.icon ?? 'code-block'" class="size-8 text-gray-400" />
+                            <div>
+                                <p class="text-sm font-medium text-gray-700 dark:text-gray-200">
+                                    {{ widgetsMetaByHandle[item.config?.type]?.title ?? item.config?.type }}
+                                </p>
+                                <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ __('Configure this widget to preview it here.') }}</p>
+                            </div>
                         </div>
                     </div>
                 </div>
-                <div v-if="editing && !draftItems.length" class="w-full text-center text-gray-500 py-12 border border-dashed rounded-lg dark:border-gray-700">
-                    {{ __('No widgets yet. Click "Add Widget" to get started.') }}
+                <div v-if="editing && !draftItems.length" class="dashboard-widget-empty w-full">
+                    <Icon name="dashboard" class="size-10 text-gray-400" />
+                    <div>
+                        <p class="text-sm font-medium text-gray-700 dark:text-gray-200">{{ __('No widgets yet') }}</p>
+                        <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">{{ __('Add a widget to start customizing your dashboard.') }}</p>
+                    </div>
+                    <WidgetPicker :widgets="availableWidgets || []" @picked="widgetPicked" />
                 </div>
             </div>
         </SortableList>
