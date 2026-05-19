@@ -3,7 +3,7 @@ import Head from '@/pages/layout/Head.vue';
 import DynamicHtmlRenderer from '@/components/DynamicHtmlRenderer.vue';
 import { Icon, Button, EmptyStateMenu, EmptyStateItem, DocsCallout } from '@ui';
 import { SortableList } from '@/components/sortable/Sortable.js';
-import WidgetTile from '@/components/dashboard/WidgetTile.vue';
+import WidgetEditOverlay from '@/components/dashboard/WidgetEditOverlay.vue';
 import WidgetPicker from '@/components/dashboard/WidgetPicker.vue';
 import WidgetConfigStack from '@/components/dashboard/WidgetConfigStack.vue';
 import useArchitecturalBackground from '@/pages/layout/architectural-background.js';
@@ -20,7 +20,7 @@ export default {
         EmptyStateItem,
         DocsCallout,
         SortableList,
-        WidgetTile,
+        WidgetEditOverlay,
         WidgetPicker,
         WidgetConfigStack,
     },
@@ -40,7 +40,7 @@ export default {
     data() {
         return {
             editing: false,
-            draftWidgets: [],
+            draftItems: [],
             availableWidgets: null,
             loadingMeta: false,
             picking: false,
@@ -51,17 +51,26 @@ export default {
 
     computed: {
         widgetsMetaByHandle() {
-            if (! this.availableWidgets) return {};
+            if (!this.availableWidgets) return {};
             return Object.fromEntries(this.availableWidgets.map((w) => [w.handle, w]));
         },
 
         configuringWidget() {
             if (this.configuringIndex === null) return null;
-            return this.draftWidgets[this.configuringIndex] || null;
+            return this.draftItems[this.configuringIndex]?.config || null;
         },
 
         configuringMeta() {
             return this.configuringWidget ? this.widgetsMetaByHandle[this.configuringWidget.type] : null;
+        },
+
+        // Unified widget list used in both view and edit mode.
+        // Using the same key (index) in both modes prevents widget remounting when toggling.
+        unifiedWidgets() {
+            if (this.editing) {
+                return this.draftItems.map((item) => ({ config: item.config, display: item.display }));
+            }
+            return this.widgets.map((widget) => ({ config: null, display: widget }));
         },
     },
 
@@ -70,8 +79,8 @@ export default {
     },
 
     methods: {
-        classes(widget) {
-            return `${widget.classes ?? ''} ${this.tailwindWidthClass(widget.width)}`;
+        classes(source) {
+            return `${source?.classes ?? ''} ${this.tailwindWidthClass(source?.width)}`;
         },
 
         tailwindWidthClass(width) {
@@ -88,14 +97,17 @@ export default {
         },
 
         startEditing() {
-            this.draftWidgets = clone(this.widgetConfigs);
+            this.draftItems = this.widgetConfigs.map((config, i) => ({
+                config: clone(config),
+                display: this.widgets[i] || null,
+            }));
             this.editing = true;
             this.ensureMetaLoaded();
         },
 
         cancelEditing() {
             this.editing = false;
-            this.draftWidgets = [];
+            this.draftItems = [];
         },
 
         ensureMetaLoaded() {
@@ -114,9 +126,9 @@ export default {
 
         widgetPicked(widget) {
             const newConfig = { type: widget.handle, ...(widget.defaults || {}) };
-            this.draftWidgets.push(newConfig);
+            this.draftItems.push({ config: newConfig, display: null });
             this.picking = false;
-            this.configuringIndex = this.draftWidgets.length - 1;
+            this.configuringIndex = this.draftItems.length - 1;
         },
 
         configureWidget(index) {
@@ -125,21 +137,33 @@ export default {
 
         widgetConfigSaved(updated) {
             if (this.configuringIndex === null) return;
-            this.draftWidgets.splice(this.configuringIndex, 1, updated);
+            const existing = this.draftItems[this.configuringIndex];
+            this.draftItems.splice(this.configuringIndex, 1, { ...existing, config: updated });
             this.configuringIndex = null;
         },
 
         removeWidget(index) {
-            this.draftWidgets.splice(index, 1);
+            if (this.configuringIndex === index) {
+                this.configuringIndex = null;
+            } else if (this.configuringIndex !== null && this.configuringIndex > index) {
+                this.configuringIndex--;
+            }
+            this.draftItems.splice(index, 1);
         },
 
         updateWidth(index, width) {
-            this.draftWidgets[index] = { ...this.draftWidgets[index], width };
+            const item = this.draftItems[index];
+            this.draftItems.splice(index, 1, { ...item, config: { ...item.config, width } });
+        },
+
+        onSort(sortedItems) {
+            if (!this.editing) return;
+            this.draftItems = sortedItems.map((item) => ({ config: item.config, display: item.display }));
         },
 
         save() {
             this.saving = true;
-            this.$axios.patch(this.widgetUpdateUrl, { widgets: this.draftWidgets })
+            this.$axios.patch(this.widgetUpdateUrl, { widgets: this.draftItems.map(i => i.config) })
                 .then(() => {
                     this.editing = false;
                     router.reload();
@@ -147,7 +171,6 @@ export default {
                 .catch(() => this.$toast.error(__('Something went wrong')))
                 .finally(() => { this.saving = false; });
         },
-
     },
 };
 </script>
@@ -155,36 +178,50 @@ export default {
 <template>
     <Head :title="__('Dashboard')" />
 
-    <template v-if="editing">
+    <template v-if="editing || widgets.length">
         <ui-header :title="__('Dashboard')" icon="dashboard">
-            <Button :text="__('Add Widget')" icon="plus" @click="openPicker" />
-            <Button :text="__('Cancel')" @click="cancelEditing" />
-            <Button :text="__('Save')" variant="primary" :disabled="saving" @click="save" />
+            <template v-if="editing">
+                <Button :text="__('Add Widget')" icon="plus" @click="openPicker" />
+                <Button :text="__('Cancel')" @click="cancelEditing" />
+                <Button :text="__('Save')" variant="primary" :disabled="saving" @click="save" />
+            </template>
+            <Button v-else-if="canEditWidgets" :text="__('Edit')" icon="edit" @click="startEditing" />
         </ui-header>
 
         <SortableList
-            v-model="draftWidgets"
+            :model-value="unifiedWidgets"
             item-class="dashboard-widget-sortable"
             handle-class="dashboard-widget-handle"
-            :vertical="true"
+            :disabled="!editing"
             :mirror="false"
             :distance="5"
+            @update:model-value="onSort"
         >
-            <div class="flex flex-col gap-3">
+            <div class="widgets @container/widgets flex flex-wrap gap-y-6 -mx-2 sm:-mx-3">
                 <div
-                    v-for="(config, index) in draftWidgets"
-                    :key="`${config.type}-${index}`"
-                    class="dashboard-widget-sortable"
+                    v-for="(item, index) in unifiedWidgets"
+                    :key="index"
+                    class="dashboard-widget-sortable px-3"
+                    :class="[classes(item.config ?? item.display), { 'starting-style-transition': !editing }]"
                 >
-                    <WidgetTile
-                        :config="config"
-                        :meta="widgetsMetaByHandle[config.type]"
-                        @configure="configureWidget(index)"
-                        @remove="removeWidget(index)"
-                        @update:width="updateWidth(index, $event)"
-                    />
+                    <div class="relative">
+                        <WidgetEditOverlay
+                            v-if="editing && item.config"
+                            :config="item.config"
+                            :meta="widgetsMetaByHandle[item.config.type]"
+                            @configure="configureWidget(index)"
+                            @remove="removeWidget(index)"
+                            @update:width="updateWidth(index, $event)"
+                        />
+                        <component v-if="item.display?.component" :is="item.display.component.name" v-bind="item.display.component.props" />
+                        <DynamicHtmlRenderer v-else-if="item.display?.html" :html="item.display.html" />
+                        <div v-else-if="editing" class="rounded-lg border-2 border-dashed border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-800/50 p-8 flex flex-col items-center justify-center gap-2 text-gray-500 dark:text-gray-400 min-h-32">
+                            <Icon :name="widgetsMetaByHandle[item.config?.type]?.icon ?? 'code-block'" class="size-8 opacity-50" />
+                            <span class="text-sm">{{ widgetsMetaByHandle[item.config?.type]?.title ?? item.config?.type }}</span>
+                        </div>
+                    </div>
                 </div>
-                <div v-if="!draftWidgets.length" class="text-center text-gray-500 py-12 border border-dashed rounded-lg dark:border-gray-700">
+                <div v-if="editing && !draftItems.length" class="w-full text-center text-gray-500 py-12 border border-dashed rounded-lg dark:border-gray-700">
                     {{ __('No widgets yet. Click "Add Widget" to get started.') }}
                 </div>
             </div>
@@ -204,24 +241,6 @@ export default {
             @closed="configuringIndex = null"
             @saved="widgetConfigSaved"
         />
-
-    </template>
-
-    <template v-else-if="widgets.length">
-        <ui-header :title="__('Dashboard')" icon="dashboard">
-            <Button v-if="canEditWidgets" :text="__('Edit')" icon="edit" @click="startEditing" />
-        </ui-header>
-
-        <div class="widgets @container/widgets flex flex-wrap gap-y-6 -mx-2 sm:-mx-3">
-            <div
-                v-for="widget in widgets"
-                class="px-3 starting-style-transition"
-                :class="classes(widget)"
-            >
-                <component v-if="widget.component" :is="widget.component.name" v-bind="widget.component.props" />
-                <DynamicHtmlRenderer v-else :html="widget.html" />
-            </div>
-        </div>
     </template>
 
     <template v-else>
