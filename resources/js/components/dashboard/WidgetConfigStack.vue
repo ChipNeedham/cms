@@ -1,8 +1,8 @@
 <script>
-import { Stack, Button, PublishContainer, PublishTabs, Icon } from '@/components/ui';
+import { Stack, Button, PublishContainer, PublishFieldsProvider, PublishFields, Icon } from '@/components/ui';
 
 export default {
-    components: { Stack, Button, PublishContainer, PublishTabs, Icon },
+    components: { Stack, Button, PublishContainer, PublishFieldsProvider, PublishFields, Icon },
 
     emits: ['closed', 'saved'],
 
@@ -66,7 +66,9 @@ export default {
                         :errors="errors"
                         v-model="values"
                     >
-                        <PublishTabs />
+                        <PublishFieldsProvider :fields="blueprint.tabs[0].sections[0].fields">
+                            <PublishFields />
+                        </PublishFieldsProvider>
                     </PublishContainer>
                 </div>
                 <div class="border-t bg-gray-200 dark:bg-gray-700 dark:border-gray-900 p-4 flex justify-end gap-2">
