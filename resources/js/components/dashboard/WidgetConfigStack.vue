@@ -1,48 +1,31 @@
-<script>
+<script setup>
+import { ref, computed, getCurrentInstance } from 'vue';
 import { Stack, Button, PublishContainer, PublishFieldsProvider, PublishFields, Icon } from '@/components/ui';
 
-export default {
-    components: { Stack, Button, PublishContainer, PublishFieldsProvider, PublishFields, Icon },
+const props = defineProps({
+    config: { type: Object, required: true },
+    meta: { type: Object, default: null },
+});
 
-    emits: ['closed', 'saved'],
+const emit = defineEmits(['closed', 'saved']);
 
-    props: {
-        config: { type: Object, required: true },
-        meta: { type: Object, default: null },
-    },
+const blueprint = computed(() => props.meta?.blueprint);
+const title = computed(() => props.meta?.title ?? props.config.type);
 
-    data() {
-        return {
-            values: this.initialValues(),
-            fieldMeta: this.meta?.meta || {},
-            errors: {},
-            name: `dashboard-widget-${this.config.type}-${Math.random().toString(36).slice(2, 8)}`,
-        };
-    },
+function initialValues() {
+    const defaults = props.meta?.defaults ?? {};
+    const { type, ...rest } = props.config;
+    return { ...defaults, ...rest };
+}
 
-    computed: {
-        blueprint() {
-            return this.meta?.blueprint;
-        },
+const values = ref(initialValues());
+const fieldMeta = ref(props.meta?.meta || {});
+const errors = ref({});
+const name = `dashboard-widget-${props.config.type}-${Math.random().toString(36).slice(2, 8)}`;
 
-        title() {
-            return this.meta?.title ?? this.config.type;
-        },
-    },
-
-    methods: {
-        initialValues() {
-            const defaults = this.meta?.defaults ?? {};
-            const { type, ...rest } = this.config;
-            return { ...defaults, ...rest };
-        },
-
-        save() {
-            const next = { type: this.config.type, ...this.values };
-            this.$emit('saved', next);
-        },
-    },
-};
+function save() {
+    emit('saved', { type: props.config.type, ...values.value });
+}
 </script>
 
 <template>
@@ -51,7 +34,7 @@ export default {
         open
         inset
         :title="title"
-        @update:open="$emit('closed')"
+        @update:open="emit('closed')"
     >
         <div class="flex flex-col h-full">
             <div v-if="!blueprint" class="flex-1 flex items-center justify-center">
@@ -72,7 +55,7 @@ export default {
                     </PublishContainer>
                 </div>
                 <div class="border-t bg-gray-200 dark:bg-gray-700 dark:border-gray-900 p-4 flex justify-end gap-2">
-                    <Button variant="ghost" :text="__('Cancel')" @click="$emit('closed')" />
+                    <Button variant="ghost" :text="__('Cancel')" @click="emit('closed')" />
                     <Button variant="primary" :text="__('Apply')" @click="save" />
                 </div>
             </template>

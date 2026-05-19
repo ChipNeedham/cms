@@ -1,4 +1,5 @@
-<script>
+<script setup>
+import { ref, computed, onMounted, getCurrentInstance } from 'vue';
 import Head from '@/pages/layout/Head.vue';
 import DynamicHtmlRenderer from '@/components/DynamicHtmlRenderer.vue';
 import { Icon, Button, EmptyStateMenu, EmptyStateItem, DocsCallout } from '@ui';
@@ -10,169 +11,144 @@ import useArchitecturalBackground from '@/pages/layout/architectural-background.
 import { router } from '@inertiajs/vue3';
 import { clone } from '@/bootstrap/globals.js';
 
-export default {
-    components: {
-        Head,
-        DynamicHtmlRenderer,
-        Icon,
-        Button,
-        EmptyStateMenu,
-        EmptyStateItem,
-        DocsCallout,
-        SortableList,
-        WidgetEditOverlay,
-        WidgetPicker,
-        WidgetConfigStack,
-    },
+const props = defineProps({
+    widgets: Array,
+    widgetConfigs: { type: Array, default: () => [] },
+    canEditWidgets: { type: Boolean, default: false },
+    widgetMetaUrl: String,
+    widgetUpdateUrl: String,
+    pro: Boolean,
+    blueprintsUrl: String,
+    collectionsCreateUrl: String,
+    navigationCreateUrl: String,
+});
 
-    props: {
-        widgets: Array,
-        widgetConfigs: { type: Array, default: () => [] },
-        canEditWidgets: { type: Boolean, default: false },
-        widgetMetaUrl: String,
-        widgetUpdateUrl: String,
-        pro: Boolean,
-        blueprintsUrl: String,
-        collectionsCreateUrl: String,
-        navigationCreateUrl: String,
-    },
+const { $axios, $toast } = getCurrentInstance().appContext.config.globalProperties;
 
-    data() {
-        return {
-            editing: false,
-            draftItems: [],
-            availableWidgets: null,
-            loadingMeta: false,
-            picking: false,
-            configuringIndex: null,
-            saving: false,
-        };
-    },
+const editing = ref(false);
+const draftItems = ref([]);
+const availableWidgets = ref(null);
+const loadingMeta = ref(false);
+const picking = ref(false);
+const configuringIndex = ref(null);
+const saving = ref(false);
 
-    computed: {
-        widgetsMetaByHandle() {
-            if (!this.availableWidgets) return {};
-            return Object.fromEntries(this.availableWidgets.map((w) => [w.handle, w]));
-        },
+const widgetsMetaByHandle = computed(() => {
+    if (!availableWidgets.value) return {};
+    return Object.fromEntries(availableWidgets.value.map((w) => [w.handle, w]));
+});
 
-        configuringWidget() {
-            if (this.configuringIndex === null) return null;
-            return this.draftItems[this.configuringIndex]?.config || null;
-        },
+const configuringWidget = computed(() => {
+    if (configuringIndex.value === null) return null;
+    return draftItems.value[configuringIndex.value]?.config || null;
+});
 
-        configuringMeta() {
-            return this.configuringWidget ? this.widgetsMetaByHandle[this.configuringWidget.type] : null;
-        },
+const configuringMeta = computed(() => {
+    return configuringWidget.value ? widgetsMetaByHandle.value[configuringWidget.value.type] : null;
+});
 
-        // Unified widget list used in both view and edit mode.
-        // Using the same key (index) in both modes prevents widget remounting when toggling.
-        unifiedWidgets() {
-            if (this.editing) {
-                return this.draftItems.map((item) => ({ config: item.config, display: item.display }));
-            }
-            return this.widgets.map((widget) => ({ config: null, display: widget }));
-        },
-    },
+const unifiedWidgets = computed(() => {
+    if (editing.value) {
+        return draftItems.value.map((item) => ({ config: item.config, display: item.display }));
+    }
+    return props.widgets.map((widget) => ({ config: null, display: widget }));
+});
 
-    created() {
-        if (!this.widgets.length && !this.editing) useArchitecturalBackground();
-    },
+onMounted(() => {
+    if (!props.widgets.length && !editing.value) useArchitecturalBackground();
+});
 
-    methods: {
-        classes(source) {
-            return `${source?.classes ?? ''} ${this.tailwindWidthClass(source?.width)}`;
-        },
+function tailwindWidthClass(width) {
+    const sizes = {
+        sm: 'w-full @2xl:w-1/2 @4xl:w-1/3 @7xl:w-1/4',
+        md: 'w-full @2xl:w-1/2 @4xl:w-1/2 @7xl:w-1/3',
+        lg: 'w-full @2xl:w-full @4xl:w-2/3 @7xl:w-3/4',
+        full: 'w-full',
+    };
+    const legacyMap = { 25: 'sm', 33: 'sm', 50: 'md', 66: 'md', 75: 'lg', 100: 'full' };
+    const size = typeof width === 'number' ? (legacyMap[width] ?? 'full') : width;
+    return sizes[size] ?? sizes.md;
+}
 
-        tailwindWidthClass(width) {
-            const sizes = {
-                sm: 'w-full @2xl:w-1/2 @4xl:w-1/3 @7xl:w-1/4',
-                md: 'w-full @2xl:w-1/2 @4xl:w-1/2 @7xl:w-1/3',
-                lg: 'w-full @2xl:w-full @4xl:w-2/3 @7xl:w-3/4',
-                full: 'w-full',
-            };
+function classes(source) {
+    return `${source?.classes ?? ''} ${tailwindWidthClass(source?.width)}`;
+}
 
-            const legacyMap = { 25: 'sm', 33: 'sm', 50: 'md', 66: 'md', 75: 'lg', 100: 'full' };
-            const size = typeof width === 'number' ? (legacyMap[width] ?? 'full') : width;
-            return sizes[size] ?? sizes.md;
-        },
+function ensureMetaLoaded() {
+    if (availableWidgets.value || loadingMeta.value) return;
+    loadingMeta.value = true;
+    $axios.get(props.widgetMetaUrl)
+        .then((response) => { availableWidgets.value = response.data; })
+        .catch(() => $toast.error(__('Could not load widgets.')))
+        .finally(() => { loadingMeta.value = false; });
+}
 
-        startEditing() {
-            this.draftItems = this.widgetConfigs.map((config, i) => ({
-                config: clone(config),
-                display: this.widgets[i] || null,
-            }));
-            this.editing = true;
-            this.ensureMetaLoaded();
-        },
+function startEditing() {
+    draftItems.value = props.widgetConfigs.map((config, i) => ({
+        config: clone(config),
+        display: props.widgets[i] || null,
+    }));
+    editing.value = true;
+    ensureMetaLoaded();
+}
 
-        cancelEditing() {
-            this.editing = false;
-            this.draftItems = [];
-        },
+function cancelEditing() {
+    editing.value = false;
+    draftItems.value = [];
+}
 
-        ensureMetaLoaded() {
-            if (this.availableWidgets || this.loadingMeta) return;
-            this.loadingMeta = true;
-            this.$axios.get(this.widgetMetaUrl)
-                .then((response) => { this.availableWidgets = response.data; })
-                .catch(() => this.$toast.error(__('Could not load widgets.')))
-                .finally(() => { this.loadingMeta = false; });
-        },
+function openPicker() {
+    ensureMetaLoaded();
+    picking.value = true;
+}
 
-        openPicker() {
-            this.ensureMetaLoaded();
-            this.picking = true;
-        },
+function widgetPicked(widget) {
+    const newConfig = { type: widget.handle, ...(widget.defaults || {}) };
+    draftItems.value.push({ config: newConfig, display: null });
+    picking.value = false;
+    configuringIndex.value = draftItems.value.length - 1;
+}
 
-        widgetPicked(widget) {
-            const newConfig = { type: widget.handle, ...(widget.defaults || {}) };
-            this.draftItems.push({ config: newConfig, display: null });
-            this.picking = false;
-            this.configuringIndex = this.draftItems.length - 1;
-        },
+function configureWidget(index) {
+    configuringIndex.value = index;
+}
 
-        configureWidget(index) {
-            this.configuringIndex = index;
-        },
+function widgetConfigSaved(updated) {
+    if (configuringIndex.value === null) return;
+    const existing = draftItems.value[configuringIndex.value];
+    draftItems.value.splice(configuringIndex.value, 1, { ...existing, config: updated });
+    configuringIndex.value = null;
+}
 
-        widgetConfigSaved(updated) {
-            if (this.configuringIndex === null) return;
-            const existing = this.draftItems[this.configuringIndex];
-            this.draftItems.splice(this.configuringIndex, 1, { ...existing, config: updated });
-            this.configuringIndex = null;
-        },
+function removeWidget(index) {
+    if (configuringIndex.value === index) {
+        configuringIndex.value = null;
+    } else if (configuringIndex.value !== null && configuringIndex.value > index) {
+        configuringIndex.value--;
+    }
+    draftItems.value.splice(index, 1);
+}
 
-        removeWidget(index) {
-            if (this.configuringIndex === index) {
-                this.configuringIndex = null;
-            } else if (this.configuringIndex !== null && this.configuringIndex > index) {
-                this.configuringIndex--;
-            }
-            this.draftItems.splice(index, 1);
-        },
+function updateWidth(index, width) {
+    const item = draftItems.value[index];
+    draftItems.value.splice(index, 1, { ...item, config: { ...item.config, width } });
+}
 
-        updateWidth(index, width) {
-            const item = this.draftItems[index];
-            this.draftItems.splice(index, 1, { ...item, config: { ...item.config, width } });
-        },
+function onSort(sortedItems) {
+    if (!editing.value) return;
+    draftItems.value = sortedItems.map((item) => ({ config: item.config, display: item.display }));
+}
 
-        onSort(sortedItems) {
-            if (!this.editing) return;
-            this.draftItems = sortedItems.map((item) => ({ config: item.config, display: item.display }));
-        },
-
-        save() {
-            this.saving = true;
-            this.$axios.patch(this.widgetUpdateUrl, { widgets: this.draftItems.map(i => i.config) })
-                .then(() => {
-                    this.editing = false;
-                    router.reload();
-                })
-                .catch(() => this.$toast.error(__('Something went wrong')))
-                .finally(() => { this.saving = false; });
-        },
-    },
-};
+function save() {
+    saving.value = true;
+    $axios.patch(props.widgetUpdateUrl, { widgets: draftItems.value.map((i) => i.config) })
+        .then(() => {
+            editing.value = false;
+            router.reload();
+        })
+        .catch(() => $toast.error(__('Something went wrong')))
+        .finally(() => { saving.value = false; });
+}
 </script>
 
 <template>
