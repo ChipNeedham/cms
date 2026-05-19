@@ -1,7 +1,7 @@
 <script setup>
 import { Card, Icon } from '@ui';
 import { Link } from '@inertiajs/vue3';
-import { useSlots, computed, onMounted } from 'vue';
+import { useSlots, computed } from 'vue';
 
 const props = defineProps({
     title: {type: String },
@@ -11,8 +11,6 @@ const props = defineProps({
 
 const slots = useSlots();
 const hasHeader = computed(() => Boolean(props.title || props.icon || slots.actions));
-
-onMounted(() => console.log('widget mounted'));
 </script>
 
 <template>
