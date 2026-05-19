@@ -23,7 +23,6 @@ class DashboardWidgetsController extends CpController
             return [
                 'handle' => $handle,
                 'title' => $class::title(),
-                'description' => $class::description(),
                 'icon' => $class::icon(),
                 'blueprint' => $blueprint->toPublishArray(),
                 'meta' => $fields->meta(),

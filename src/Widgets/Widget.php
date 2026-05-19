@@ -38,11 +38,6 @@ abstract class Widget
         return Str::removeRight(static::traitHandle(), '_widget');
     }
 
-    public static function description(): ?string
-    {
-        return null;
-    }
-
     public static function icon(): string
     {
         return 'code-block';

@@ -14,11 +14,6 @@ use function Statamic\trans as __;
 
 class Collection extends Widget
 {
-    public static function description(): ?string
-    {
-        return __('statamic::messages.widget_collection_description');
-    }
-
     public static function icon(): string
     {
         return 'collections';

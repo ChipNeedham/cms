@@ -11,11 +11,6 @@ use function Statamic\trans as __;
 
 class Updater extends Widget
 {
-    public static function description(): ?string
-    {
-        return __('statamic::messages.widget_updater_description');
-    }
-
     public static function icon(): string
     {
         return 'updates';

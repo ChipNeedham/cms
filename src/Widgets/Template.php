@@ -8,11 +8,6 @@ use function Statamic\trans as __;
 
 class Template extends Widget
 {
-    public static function description(): ?string
-    {
-        return __('statamic::messages.widget_template_description');
-    }
-
     public static function icon(): string
     {
         return 'template-theme-design-layout';
